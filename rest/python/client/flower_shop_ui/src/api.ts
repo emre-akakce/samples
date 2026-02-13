@@ -2,6 +2,17 @@ import type { Checkout, MerchantProfile, PaymentInstrument } from './types';
 
 const BASE = '/api';
 
+function parseError(err: unknown, fallback: string): string {
+  if (typeof err !== 'object' || err === null) return fallback;
+  const detail = (err as Record<string, unknown>).detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0] as Record<string, unknown>;
+    return `${first.msg ?? fallback}: ${(first.loc as string[] | undefined)?.join('.') ?? ''}`;
+  }
+  return fallback;
+}
+
 function headers(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
@@ -13,7 +24,7 @@ function headers(): Record<string, string> {
 }
 
 export async function fetchMerchantProfile(): Promise<MerchantProfile> {
-  const res = await fetch(`${BASE}/.well-known/ucp`);
+  const res = await fetch(`${BASE}/.well-known/ucp`, { headers: headers() });
   if (!res.ok) throw new Error('Failed to fetch merchant profile');
   return res.json();
 }
@@ -34,7 +45,10 @@ export async function createCheckout(
       payment: { instruments: [], handlers: paymentHandlers },
     }),
   });
-  if (!res.ok) throw new Error('Failed to create checkout');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(parseError(err, 'Failed to create checkout'));
+  }
   return res.json();
 }
 
@@ -49,7 +63,7 @@ export async function updateCheckout(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? 'Failed to update checkout');
+    throw new Error(parseError(err, 'Failed to update checkout'));
   }
   return res.json();
 }
@@ -68,7 +82,7 @@ export async function completeCheckout(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { detail?: string }).detail ?? 'Payment failed');
+    throw new Error(parseError(err, 'Payment failed'));
   }
   return res.json();
 }
