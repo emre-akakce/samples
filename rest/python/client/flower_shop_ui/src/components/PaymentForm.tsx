@@ -2,37 +2,6 @@ import { useState } from 'react';
 import type { Checkout, PaymentInstrument } from '../types';
 import { formatCents } from '../types';
 
-// Mock payment instruments matching test_data/flower_shop payment_instruments.csv
-const MOCK_INSTRUMENTS: PaymentInstrument[] = [
-  {
-    id: 'instr_1',
-    handler_id: 'mock_payment_handler',
-    handler_name: 'dev.ucp.mock_payment',
-    type: 'card',
-    brand: 'Visa',
-    last_digits: '1234',
-    credential: { type: 'token', token: 'success_token' },
-  },
-  {
-    id: 'instr_2',
-    handler_id: 'mock_payment_handler',
-    handler_name: 'dev.ucp.mock_payment',
-    type: 'card',
-    brand: 'Mastercard',
-    last_digits: '5678',
-    credential: { type: 'token', token: 'success_token' },
-  },
-  {
-    id: 'instr_fail',
-    handler_id: 'mock_payment_handler',
-    handler_name: 'dev.ucp.mock_payment',
-    type: 'card',
-    brand: 'Visa',
-    last_digits: '0000',
-    credential: { type: 'token', token: 'fail_token' },
-  },
-];
-
 interface Props {
   checkout: Checkout;
   onPay: (instrument: PaymentInstrument) => void;
@@ -42,15 +11,18 @@ interface Props {
 }
 
 export function PaymentForm({ checkout, onPay, onBack, loading, error }: Props) {
-  const [selectedId, setSelectedId] = useState<string>(MOCK_INSTRUMENTS[0].id);
+  const instruments = checkout.payment?.instruments ?? [];
+  const handlers = checkout.payment?.handlers ?? [];
+
+  const [selectedId, setSelectedId] = useState<string>(instruments[0]?.id ?? '');
 
   const total = checkout.totals.find((t) => t.type === 'total')?.amount ?? 0;
-  const shipping = checkout.totals.find((t) => t.type === 'fulfillment')?.amount ?? 0;
   const subtotal = checkout.totals.find((t) => t.type === 'subtotal')?.amount ?? 0;
   const discount = checkout.totals.find((t) => t.type === 'discount')?.amount ?? 0;
+  const shipping = checkout.totals.find((t) => t.type === 'fulfillment')?.amount ?? 0;
 
   function handlePay() {
-    const instrument = MOCK_INSTRUMENTS.find((i) => i.id === selectedId);
+    const instrument = instruments.find((i) => i.id === selectedId);
     if (instrument) onPay(instrument);
   }
 
@@ -78,43 +50,64 @@ export function PaymentForm({ checkout, onPay, onBack, loading, error }: Props) 
         </div>
       </div>
 
-      {/* Card selector */}
-      <div>
-        <p className="text-sm font-medium text-gray-600 mb-2">Select payment method:</p>
-        <div className="flex flex-col gap-2">
-          {MOCK_INSTRUMENTS.map((instr) => {
-            const isFail = instr.credential.token === 'fail_token';
-            return (
-              <label
-                key={instr.id}
-                className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
-                  selectedId === instr.id
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
+      {/* Payment handlers from UCP discovery */}
+      {handlers.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-400 mb-1">Accepted payment methods (from UCP profile):</p>
+          <div className="flex gap-2 flex-wrap">
+            {handlers.map((h) => (
+              <span
+                key={h.id}
+                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full"
               >
-                <div className="flex items-center gap-3">
-                  <input
-                    type="radio"
-                    name="instrument"
-                    value={instr.id}
-                    checked={selectedId === instr.id}
-                    onChange={() => setSelectedId(instr.id)}
-                    disabled={loading}
-                    className="accent-green-500"
-                  />
-                  <span className="text-sm text-gray-700">
-                    {instr.brand} •••• {instr.last_digits}
-                  </span>
-                </div>
-                {isFail && (
-                  <span className="text-xs text-red-400 italic">test: will fail</span>
-                )}
-              </label>
-            );
-          })}
+                {h.name}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Saved instruments from UCP checkout response */}
+      {instruments.length > 0 ? (
+        <div>
+          <p className="text-sm font-medium text-gray-600 mb-2">Select saved card:</p>
+          <div className="flex flex-col gap-2">
+            {instruments.map((instr) => {
+              const isFail = (instr.credential?.token ?? '') === 'fail_token';
+              return (
+                <label
+                  key={instr.id}
+                  className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
+                    selectedId === instr.id
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="radio"
+                      name="instrument"
+                      value={instr.id}
+                      checked={selectedId === instr.id}
+                      onChange={() => setSelectedId(instr.id)}
+                      disabled={loading}
+                      className="accent-green-500"
+                    />
+                    <span className="text-sm text-gray-700">
+                      {instr.brand} •••• {instr.last_digits}
+                    </span>
+                  </div>
+                  {isFail && (
+                    <span className="text-xs text-red-400 italic">test: will fail</span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 italic">No saved payment instruments returned by server.</p>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-3 py-2">
@@ -133,7 +126,7 @@ export function PaymentForm({ checkout, onPay, onBack, loading, error }: Props) 
         </button>
         <button
           onClick={handlePay}
-          disabled={loading}
+          disabled={loading || !selectedId}
           className="flex-1 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
         >
           {loading ? 'Processing…' : `Pay ${formatCents(total)}`}
